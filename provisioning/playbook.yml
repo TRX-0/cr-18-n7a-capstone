@@ -1,0 +1,697 @@
+# ─────────────────────────────────────────────
+#  all lab hosts - keep background apt out of the way
+# ─────────────────────────────────────────────
+- name: disable unattended upgrades
+  hosts:
+    - web01
+    - fs01
+    - ws01
+    - app01
+    - vma
+  become: true
+
+  tasks:
+    # Background apt runs grab the dpkg lock and can restart services
+    # mid-exercise. Five hosts install packages here, so the window is long.
+    - name: Stop and mask the apt background update units
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        masked: true
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+        - apt-daily.service
+        - apt-daily-upgrade.service
+
+    - name: Remove unattended-upgrades
+      ansible.builtin.apt:
+        name: unattended-upgrades
+        state: absent
+        purge: true
+
+
+# ─────────────────────────────────────────────
+#  man - the sandbox management node. It is not in topology.yml; the platform
+#  adds it to the generated inventory. Every trainee SSH and GUI session is
+#  brokered through it, so an unattended upgrade firing mid-lab can stall or
+#  drop those sessions.
+# ─────────────────────────────────────────────
+- name: disable apt auto-update on the management node
+  hosts: man
+  become: true
+
+  tasks:
+    - name: Disable unattended upgrades in apt periodic config
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "0";
+          APT::Periodic::Unattended-Upgrade "0";
+
+    - name: Disable apt daily timers
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+      failed_when: false
+
+
+# ─────────────────────────────────────────────
+#  web01 (192.168.60.20) - operations panel
+#    * HTTP only, Basic auth - the credential in the handover capture still
+#      works, because the rotation happened and the TLS work did not
+#    * the panel names the nightly transfer and points at the fs01 drop
+# ─────────────────────────────────────────────
+- name: configure web01 - operations panel
+  hosts:
+    - web01
+  become: true
+
+  vars:
+    panel_user: webops
+    # Matches the credential inside provisioning/files/orion-handover.pcapng.
+    # It cannot be an APG value: the capture is a static artefact, so the
+    # password on the wire and the password the panel accepts have to be the
+    # same literal string. Level 5's answer is APG, level 4's is this.
+    panel_password: 'Or10n_Rem3d1at3d!'
+
+  handlers:
+    - name: restart panel
+      ansible.builtin.systemd:
+        name: orion-panel
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    - name: Wait for any apt/dpkg lock to release
+      ansible.builtin.shell: >
+        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
+        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
+        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure python3 is present
+      ansible.builtin.apt:
+        name: python3
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create the panel directory
+      ansible.builtin.file:
+        path: /opt/panel
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # 0600 root: the file holds both the panel password and the level 5 flag.
+    # Nothing in this scenario gives a shell on web01, but a world-readable
+    # flag is a flag waiting to be found the wrong way.
+    - name: Deploy the operations panel
+      ansible.builtin.template:
+        src: panel.py.j2
+        dest: /opt/panel/app.py
+        owner: root
+        group: root
+        mode: '0600'
+      notify: restart panel
+
+    - name: Create the panel service unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/orion-panel.service
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Orion Retail operations panel
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          ExecStart=/usr/bin/python3 /opt/panel/app.py
+          Restart=always
+          RestartSec=2
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart panel
+
+    - name: Enable and start the panel
+      ansible.builtin.systemd:
+        name: orion-panel
+        enabled: true
+        state: started
+        daemon_reload: true
+
+
+# ─────────────────────────────────────────────
+#  fs01 (192.168.60.30) - file services
+#    * anonymous FTP drop: the IT handover note and the staff directory
+#    * staff accounts, one still on a single-word password
+#    * svc_sync is an FTP principal with no shell; its password is never
+#      written to this host, only sent to it over the wire from ws01
+# ─────────────────────────────────────────────
+- name: configure fs01 - file services
+  hosts:
+    - fs01
+  become: true
+
+  vars:
+    fs01_ip: 192.168.60.30
+    sync_user: svc_sync
+    weak_user: j.mercer
+    weak_password: sunflower
+    decoy_password: 'Or10n-R0t4t3d-2026-#7741'
+    staff:
+      - a.hale
+      - j.mercer
+      - p.okonkwo
+      - s.dubois
+      - t.reyes
+
+  handlers:
+    - name: restart vsftpd
+      ansible.builtin.systemd:
+        name: vsftpd
+        state: restarted
+
+    - name: restart ssh
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+
+  tasks:
+    - name: Wait for any apt/dpkg lock to release
+      ansible.builtin.shell: >
+        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
+        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
+        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
+      changed_when: false
+      failed_when: false
+
+    - name: Install file and remote-access services
+      ansible.builtin.apt:
+        name:
+          - vsftpd
+          - openssh-server
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # --- accounts -------------------------------------------------------
+    - name: Create staff accounts (rotated passwords by default)
+      ansible.builtin.user:
+        name: "{{ item }}"
+        password: "{{ decoy_password | password_hash('sha512') }}"
+        shell: /bin/bash
+        create_home: true
+        state: present
+      loop: "{{ staff }}"
+
+    - name: Leave {{ weak_user }} on the password that was never rotated
+      ansible.builtin.user:
+        name: "{{ weak_user }}"
+        password: "{{ weak_password | password_hash('sha512') }}"
+
+    # No shell. The sync account exists here only so vsftpd's PAM stack can
+    # authenticate it; nothing should be able to log in with it interactively
+    # even once its password is known.
+    - name: Create the transfer service account
+      ansible.builtin.user:
+        name: "{{ sync_user }}"
+        password: "{{ sync_password | password_hash('sha512') }}"
+        shell: /usr/sbin/nologin
+        home: /srv/sync
+        create_home: false
+        state: present
+
+    # --- anonymous FTP drop ---------------------------------------------
+    - name: Create the anonymous FTP root
+      ansible.builtin.file:
+        path: /srv/ftp
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy the IT handover note
+      ansible.builtin.template:
+        src: it-handover.txt.j2
+        dest: /srv/ftp/it-handover.txt
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Deploy the staff directory
+      ansible.builtin.template:
+        src: staff-directory.csv.j2
+        dest: /srv/ftp/staff-directory.csv
+        owner: root
+        group: root
+        mode: '0644'
+
+    # --- the sync landing directory -------------------------------------
+    # 0755 so a trainee with a shell on fs01 can read the notes; they are what
+    # point at the nightly FTP login and therefore at level 8.
+    - name: Create the sync landing directory
+      ansible.builtin.file:
+        path: /srv/sync
+        state: directory
+        owner: "{{ sync_user }}"
+        group: "{{ sync_user }}"
+        mode: '0755'
+
+    - name: Deploy the transfer notes
+      ansible.builtin.template:
+        src: sync-notes.txt.j2
+        dest: /srv/sync/sync-notes.txt
+        owner: root
+        group: root
+        mode: '0644'
+
+    # --- level 7 flag ---------------------------------------------------
+    - name: Plant the level 7 flag in {{ weak_user }}'s home
+      ansible.builtin.copy:
+        content: "{{ ssh_flag }}\n"
+        dest: "/home/{{ weak_user }}/flag.txt"
+        owner: "{{ weak_user }}"
+        group: "{{ weak_user }}"
+        mode: '0600'
+
+    # --- vsftpd ---------------------------------------------------------
+    - name: Deploy vsftpd config
+      ansible.builtin.template:
+        src: vsftpd.conf.j2
+        dest: /etc/vsftpd.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart vsftpd
+
+    # --- sshd -----------------------------------------------------------
+    # Only the account level 7 is meant to open should ever answer a guess.
+    # DenyUsers in sshd_config is not reliably honoured on this image, so the
+    # denial goes through PAM, which does not care how sshd resolves its own
+    # keywords. Scoped to the sshd service only - vsftpd authenticates through
+    # its own PAM stack, so svc_sync can still log in over FTP.
+    - name: Deny SSH to every account except the one level 7 opens
+      ansible.builtin.copy:
+        dest: /etc/security/access.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Only {{ weak_user }} answers over SSH. The other staff accounts
+          # hold a rotated password and should never respond to a guess, and
+          # the sync account has no business with an interactive session.
+          - : {{ sync_user }} : ALL
+          {% for s in staff if s != weak_user %}
+          - : {{ s }} : ALL
+          {% endfor %}
+
+    - name: Enable pam_access for sshd
+      ansible.builtin.lineinfile:
+        path: /etc/pam.d/sshd
+        regexp: '^#?\s*account\s+required\s+pam_access\.so'
+        line: 'account  required  pam_access.so'
+        state: present
+
+    - name: Deploy the lab sshd overrides
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-lab.conf
+        owner: root
+        group: root
+        mode: '0644'
+        validate: /usr/sbin/sshd -t -f %s
+        content: |
+          PasswordAuthentication yes
+
+          # hydra opens a lot of parallel sessions. The stock 10:30:100 starts
+          # dropping them silently, which looks to the trainee like the
+          # password simply is not in the list.
+          MaxStartups 100:30:200
+          MaxSessions 50
+      notify: restart ssh
+
+    - name: Enable and start file services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - vsftpd
+        - ssh
+
+
+# ─────────────────────────────────────────────
+#  ws01 (192.168.60.40) - office workstation
+#    * runs the till export to fs01 over FTP once a minute, in the clear
+#    * svc_sync has a shell here because the job runs from this host - and
+#      that same password is what gets the trainee onto the box
+# ─────────────────────────────────────────────
+- name: configure ws01 - office workstation
+  hosts:
+    - ws01
+  become: true
+
+  vars:
+    fs01_ip: 192.168.60.30
+    sync_user: svc_sync
+    sync_interval_sec: 60
+
+  handlers:
+    - name: restart ssh
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+  tasks:
+    - name: Wait for any apt/dpkg lock to release
+      ansible.builtin.shell: >
+        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
+        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
+        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
+      changed_when: false
+      failed_when: false
+
+    - name: Install the workstation toolset
+      ansible.builtin.apt:
+        name:
+          - netcat-openbsd
+          - openssh-server
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Credential reuse is the finding: the same password authenticates the FTP
+    # job on fs01 and an interactive session here.
+    - name: Create the transfer service account
+      ansible.builtin.user:
+        name: "{{ sync_user }}"
+        password: "{{ sync_password | password_hash('sha512') }}"
+        shell: /bin/bash
+        create_home: true
+        state: present
+
+    # 0700 root. The job runs as root out of systemd, so svc_sync never needs
+    # to read it - and should not be able to, or a trainee who lands here some
+    # other way could lift the password instead of capturing it.
+    - name: Deploy the till export job
+      ansible.builtin.template:
+        src: sync.sh.j2
+        dest: /usr/local/sbin/orion-sync.sh
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Deploy the till export service unit
+      ansible.builtin.template:
+        src: sync.service.j2
+        dest: /etc/systemd/system/orion-sync.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload systemd
+
+    - name: Deploy the till export timer
+      ansible.builtin.template:
+        src: sync.timer.j2
+        dest: /etc/systemd/system/orion-sync.timer
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload systemd
+
+    - name: Enable and start the till export timer
+      ansible.builtin.systemd:
+        name: orion-sync.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Deploy the lab sshd overrides
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-lab.conf
+        owner: root
+        group: root
+        mode: '0644'
+        validate: /usr/sbin/sshd -t -f %s
+        content: |
+          PasswordAuthentication yes
+      notify: restart ssh
+
+    - name: Enable and start SSH
+      ansible.builtin.systemd:
+        name: ssh
+        enabled: true
+        state: started
+
+
+# ─────────────────────────────────────────────
+#  app01 (192.168.60.50) - internal application
+#    * unauthenticated service on 8080 holding the final objective
+#    * a host firewall trusts ws01's address and refuses vma's, which is what
+#      forces the pivot. No account exists here, so SSH is not a way in even
+#      from ws01 - the port forward is the only route.
+# ─────────────────────────────────────────────
+- name: configure app01 - internal application
+  hosts:
+    - app01
+  become: true
+
+  vars:
+    vma_ip: 192.168.60.10
+    ws01_ip: 192.168.60.40
+
+  handlers:
+    - name: restart appsvc
+      ansible.builtin.systemd:
+        name: orion-stock
+        state: restarted
+        daemon_reload: true
+
+  tasks:
+    - name: Wait for any apt/dpkg lock to release
+      ansible.builtin.shell: >
+        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
+        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
+        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure python3 and ufw are present
+      ansible.builtin.apt:
+        name:
+          - python3
+          - ufw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Deploy the stock reconciliation service
+      ansible.builtin.template:
+        src: appsvc.py.j2
+        dest: /opt/orion-stock.py
+        owner: root
+        group: root
+        mode: '0600'
+      notify: restart appsvc
+
+    - name: Create the service unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/orion-stock.service
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Orion Retail stock reconciliation service
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          ExecStart=/usr/bin/python3 /opt/orion-stock.py
+          Restart=always
+          RestartSec=2
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart appsvc
+
+    - name: Enable and start the service
+      ansible.builtin.systemd:
+        name: orion-stock
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    # --- host firewall --------------------------------------------------
+    # The default policy stays ALLOW on purpose. A default-deny policy here
+    # cuts the platform's own management and GUI/console path to this host,
+    # which presents as "vm unreachable" rather than as a firewall. Only the
+    # one flow that has to be blocked is blocked.
+    - name: Default policies (allow) - preserves the management plane
+      community.general.ufw:
+        direction: "{{ item }}"
+        policy: allow
+      loop:
+        - incoming
+        - outgoing
+
+    - name: Allow ws01 to reach the service
+      community.general.ufw:
+        rule: allow
+        src: "{{ ws01_ip }}"
+        port: '8080'
+        proto: tcp
+
+    - name: Refuse the assessment machine (forces the pivot)
+      community.general.ufw:
+        rule: deny
+        src: "{{ vma_ip }}"
+        port: '8080'
+        proto: tcp
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+
+
+# ─────────────────────────────────────────────
+#  vma (192.168.60.10) - Kali assessment workstation
+#    * recon, capture-analysis and password-attack tooling
+#    * the SOC handover capture, read-only, in ~/case
+#    * a seeded single-word candidate list so the level 7 attack resolves in
+#      seconds rather than eating the engagement window
+# ─────────────────────────────────────────────
+- name: provision attacker workstation vma
+  hosts:
+    - vma
+  become: true
+
+  vars:
+    # Gate on the artefact, not on the task succeeding. A truncated or
+    # line-ending-mangled capture still copies cleanly and still fails level 4.
+    capture_sha256: '03fcb05dae9e2bb745ffb78c7b8bfcc998fcf670108292b5858c938c9fd6e16e'
+
+  roles:
+    - role: user-access
+      user_access_username: user
+      user_access_password: 'Password123'
+      user_access_sudo: true
+
+  tasks:
+    # The base image ships '127.0.1.1 kali.kali kali'. The platform renames the
+    # host, so that alias is stale, and the task below manages only its own line -
+    # which leaves two 127.0.1.1 entries and tells anyone who reads /etc/hosts that
+    # this is a stock Kali image rather than a company workstation.
+    - name: Drop the base image's leftover 127.0.1.1 alias
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s+kali'
+        state: absent
+
+    - name: Ensure /etc/hosts resolves the renamed hostname
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\b'
+        line: "127.0.1.1 {{ ansible_hostname }}"
+        state: present
+
+    - name: Wait for any apt/dpkg lock to release
+      ansible.builtin.shell: >
+        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
+        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
+        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure the assessment toolset is present
+      ansible.builtin.apt:
+        name:
+          - nmap
+          - hydra
+          - ftp
+          - curl
+          - tcpdump
+          - wireshark
+          - dsniff
+          - bettercap
+          - netcat-openbsd
+          - openssh-client
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Let the trainee capture without sudo
+      ansible.builtin.user:
+        name: user
+        groups: wireshark
+        append: true
+
+    # --- the handover evidence -------------------------------------------
+    # Root-owned and read-only: a trainee who overwrites the capture cannot
+    # lock themselves out of level 4.
+    - name: Create the case directory
+      ansible.builtin.file:
+        path: /home/user/case
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy the SOC handover capture
+      ansible.builtin.copy:
+        src: files/orion-handover.pcapng
+        dest: /home/user/case/orion-handover.pcapng
+        owner: root
+        group: root
+        mode: '0444'
+
+    - name: Verify the capture deployed intact
+      ansible.builtin.stat:
+        path: /home/user/case/orion-handover.pcapng
+        checksum_algorithm: sha256
+      register: capture_stat
+
+    - name: Fail if the capture is not the expected file
+      ansible.builtin.assert:
+        that:
+          - capture_stat.stat.exists
+          - capture_stat.stat.checksum == capture_sha256
+        fail_msg: >
+          orion-handover.pcapng does not match the expected checksum; level 4
+          has no recoverable credential. Re-check the file in
+          provisioning/files/.
+
+    # --- password-attack candidate list ----------------------------------
+    - name: Deploy the candidate password list
+      ansible.builtin.template:
+        src: wordlist.txt.j2
+        dest: /home/user/wordlist.txt
+        owner: user
+        group: user
+        mode: '0644'
+
+    - name: Add a case-folder shortcut to the trainee shell
+      ansible.builtin.blockinfile:
+        path: /home/user/.bashrc
+        marker: "# {mark} CADMUS N7A CASE SHORTCUT"
+        block: |
+          alias case='cd /home/user/case'
+        create: false

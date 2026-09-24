@@ -1,0 +1,17 @@
+#!/bin/sh
+# Nightly till export from ws01 to fs01.
+#
+# The POS queue is drained over FTP. vsftpd on fs01 takes USER/PASS as
+# plaintext commands, so the service credential goes across the office LAN in
+# the clear on every run - there is no TLS and no SFTP, which is the whole
+# point of the ORN-2219 ticket nobody has actioned.
+
+SERVER_IP="{{ fs01_ip }}"
+SERVER_PORT="21"
+USERNAME="{{ sync_user }}"
+PASSWORD="{{ sync_password }}"
+
+printf 'USER %s\r\nPASS %s\r\nTYPE I\r\nQUIT\r\n' "$USERNAME" "$PASSWORD" | \
+    nc -w 5 -N "$SERVER_IP" "$SERVER_PORT" >/dev/null 2>&1
+
+exit 0

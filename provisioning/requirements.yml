@@ -1,0 +1,13 @@
+---
+# Roles fetched by the sandbox editor.
+roles:
+  - name: user-access
+    src: https://github.com/cyberrangecz/ansible-role-user-access
+    scm: git
+    version: v1.0.0
+
+# community.general.ufw is what keeps app01 from answering the assessment
+# machine, which is what forces the pivot in level 9. Without it there is no
+# pivot and the last two levels collapse into one.
+collections:
+  - name: community.general

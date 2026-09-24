@@ -1,0 +1,33 @@
+ORION RETAIL LTD - IT HANDOVER NOTES
+Change reference: {{ handover_ref }}
+
+Left for whoever picks up the account cleanup. Everything below is what I got
+through before my last day; the rest is yours.
+
+ACCOUNTS
+--------
+Staff accounts follow first-initial-dot-surname, all lower case, same as it has
+always been. The current list is in staff-directory.csv next to this file, so
+you should not need to ask anyone.
+
+Password reset went out to everybody after the incident in September and
+almost all of them complied. One did not. I chased it twice, escalated once,
+and then ran out of days - the account is still on the old self-chosen
+password, which as far as I remember was a single dictionary word with nothing
+added to it. It is one of the support accounts. Please just force a reset on
+the whole set rather than trying to work out which one it is.
+
+FILE SERVER
+-----------
+fs01 still has the anonymous drop enabled on FTP. It predates me. Nobody has
+been able to tell me which supplier depends on it, so I have left it alone,
+but somebody should find out and turn it off.
+
+WHAT I DID NOT GET TO
+---------------------
+- The operations panel on web01 is still HTTP only. Credential was rotated
+  after the incident, the certificate work was never scheduled.
+- The nightly transfer job still uses FTP. There is a ticket for moving it to
+  SFTP; it has been open for two years.
+- No 802.1X, no DHCP snooping, no dynamic ARP inspection anywhere on the
+  office switch. Raised at the last review and deferred on cost.

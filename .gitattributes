@@ -1,0 +1,9 @@
+# The handover capture is binary; a line-ending filter would corrupt it and
+# the playbook gates on its sha256, so the failure would read as corruption.
+*.pcapng binary
+
+# The generator and the templates stay LF so the checksum gate is stable
+# whichever platform the repo is cloned on.
+*.py  text eol=lf
+*.j2  text eol=lf
+*.yml text eol=lf

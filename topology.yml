@@ -1,0 +1,74 @@
+name: cr-18-n7a-capstone
+hosts:
+  - name: web01
+    flavor: c1_r4_d20
+    base_box:
+      image: ubuntu-noble-x86_64
+      mgmt_user: ubuntu
+      mgmt_protocol: ssh
+    hidden: false
+  - name: fs01
+    flavor: c1_r4_d20
+    base_box:
+      image: ubuntu-noble-x86_64
+      mgmt_user: ubuntu
+      mgmt_protocol: ssh
+    hidden: false
+  - name: ws01
+    flavor: c1_r4_d20
+    base_box:
+      image: ubuntu-noble-x86_64
+      mgmt_user: ubuntu
+      mgmt_protocol: ssh
+    hidden: false
+  - name: app01
+    flavor: c1_r4_d20
+    base_box:
+      image: ubuntu-noble-x86_64
+      mgmt_user: ubuntu
+      mgmt_protocol: ssh
+    hidden: false
+  - name: vma
+    flavor: c2_r4_d30
+    base_box:
+      image: kali-2026.1-x86_64
+      mgmt_user: debian
+      mgmt_protocol: ssh
+    hidden: false
+routers:
+  - name: router
+    flavor: standard.small
+    base_box:
+      image: debian-12-x86_64
+      mgmt_user: debian
+      mgmt_protocol: ssh
+    hidden: false
+networks:
+  - name: lan
+    cidr: 192.168.60.0/24
+    accessible_by_user: true
+    hidden: false
+wan:
+  name: internet-connection
+  cidr: 10.10.10.0/24
+net_mappings:
+  - host: vma
+    network: lan
+    ip: 192.168.60.10
+  - host: web01
+    network: lan
+    ip: 192.168.60.20
+  - host: fs01
+    network: lan
+    ip: 192.168.60.30
+  - host: ws01
+    network: lan
+    ip: 192.168.60.40
+  - host: app01
+    network: lan
+    ip: 192.168.60.50
+router_mappings:
+  - router: router
+    network: lan
+    ip: 192.168.60.1
+groups: []

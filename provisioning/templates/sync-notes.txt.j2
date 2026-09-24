@@ -1,0 +1,16 @@
+Nightly transfer job - operational notes
+----------------------------------------
+
+The till export from ws01 lands in this directory. ws01 opens an FTP session
+to fs01 as svc_sync once a minute during the window and uploads whatever the
+POS service has queued.
+
+svc_sync is an FTP principal only - no shell on this host. The credential is
+held on ws01, in the job's own configuration; it is not stored here and IT has
+asked that it is not copied into this directory or into the ticket system.
+
+If a transfer is missing, check /var/log/vsftpd.log on this host for the
+svc_sync login before escalating - nine times out of ten the session never
+opened and the problem is at the ws01 end.
+
+Ticket ORN-2219 to move this to SFTP has been open since 2024.

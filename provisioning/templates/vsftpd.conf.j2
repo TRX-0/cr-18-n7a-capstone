@@ -1,0 +1,47 @@
+# vsftpd on fs01 - anonymous read for the "public" handover drop, plus local
+# logins so the nightly sync account can authenticate. Both are deliberate
+# misconfigurations for the lab.
+listen=YES
+listen_ipv6=NO
+
+# This greeting is what nmap -sV reports for port 21, and it carries the
+# asset tag graded in level 3.
+ftpd_banner=Orion Retail file services - Asset Tag: {{ ftp_asset_tag }}
+
+anonymous_enable=YES
+anon_root=/srv/ftp
+no_anon_password=YES
+anon_upload_enable=NO
+anon_mkdir_write_enable=NO
+
+# Local logins are on because svc_sync authenticates here every minute from
+# ws01 - that FTP conversation is the only place its password exists in
+# readable form, and capturing it is what level 8 is built around.
+local_enable=YES
+write_enable=YES
+local_umask=022
+
+# Everyone is chrooted to their own home. svc_sync's home is writable, which
+# vsftpd refuses by default, hence allow_writeable_chroot.
+chroot_local_user=YES
+allow_writeable_chroot=YES
+
+dirmessage_enable=YES
+use_localtime=YES
+
+# The log is how a trainee with a foothold on fs01 discovers that ws01 logs in
+# as svc_sync on a schedule.
+xferlog_enable=YES
+xferlog_file=/var/log/vsftpd.log
+log_ftp_protocol=YES
+dual_log_enable=YES
+
+connect_from_port_20=YES
+secure_chroot_dir=/var/run/vsftpd/empty
+pam_service_name=vsftpd
+seccomp_sandbox=NO
+
+pasv_enable=YES
+pasv_min_port=40000
+pasv_max_port=40100
+pasv_address={{ fs01_ip }}

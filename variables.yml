@@ -1,0 +1,49 @@
+# APG variables. See https://docs.platform.cyberrange.cz/user-guide-advanced/sandboxes/apg-variables/
+# N7a - one generated value per graded level, so no two sandboxes share an answer.
+
+# Level 3. Read off the FTP greeting on fs01 with nmap -sV. Proves the estate
+# was actually scanned rather than guessed at from the briefing.
+ftp_asset_tag:
+    type: password
+    length: 8
+    prohibited: ['{', '}', '"', "'", ' ', '\', '/']
+
+# Level 5. Returned by the operations panel on web01 once the credential
+# recovered from the handover capture is used against it.
+panel_flag:
+    type: password
+    length: 16
+    prohibited: ['{', '}', '"', "'", ' ', '\', '/']
+
+# Level 6. The change-reference in the IT handover note on fs01's anonymous
+# FTP share. Submitting it proves the document was retrieved and read.
+handover_ref:
+    type: password
+    length: 8
+    prohibited: ['{', '}', '"', "'", ' ', '\', '/']
+
+# Level 7. Sits in j.mercer's home on fs01, readable only after the password
+# attack lands.
+ssh_flag:
+    type: password
+    length: 16
+    prohibited: ['{', '}', '"', "'", ' ', '\', '/']
+
+# Level 8. The svc_sync FTP password. Templated into ws01's sync script and
+# pushed across the LAN in the clear every minute, so the only way to read it
+# is to be on-path. Not in any file the trainee can reach before that.
+#
+# ':' and '@' are excluded on top of the usual set: the answer is compared as
+# a bare string, and a password that looks like part of a URL invites trainees
+# to submit a fragment of it.
+sync_password:
+    type: password
+    length: 14
+    prohibited: ['{', '}', '"', "'", ' ', '\', '/', ':', '@']
+
+# Level 9. Served by the internal application on app01, which answers ws01 and
+# refuses vma - so it can only be read through the pivot.
+final_flag:
+    type: password
+    length: 16
+    prohibited: ['{', '}', '"', "'", ' ', '\', '/']

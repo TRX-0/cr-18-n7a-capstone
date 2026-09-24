@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule for the Orion till export
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec={{ sync_interval_sec }}s
+AccuracySec=1s
+Unit=orion-sync.service
+
+[Install]
+WantedBy=timers.target

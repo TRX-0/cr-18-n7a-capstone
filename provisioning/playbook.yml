@@ -621,6 +621,17 @@
       changed_when: false
       failed_when: false
 
+    # Preseed before installing: wireshark-common otherwise opens an
+    # interactive debconf dialog and provisioning stalls. The same question is
+    # what creates the "wireshark" group the next task adds the trainee to, so
+    # without this the group may not exist and that task fails outright.
+    - name: Preseed wireshark-common (no interactive dialog)
+      ansible.builtin.debconf:
+        name: wireshark-common
+        question: wireshark-common/install-setuid
+        value: 'true'
+        vtype: boolean
+
     - name: Ensure the assessment toolset is present
       ansible.builtin.apt:
         name:
@@ -637,6 +648,11 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
+
+    - name: Ensure the wireshark group exists
+      ansible.builtin.group:
+        name: wireshark
+        state: present
 
     - name: Let the trainee capture without sudo
       ansible.builtin.user:

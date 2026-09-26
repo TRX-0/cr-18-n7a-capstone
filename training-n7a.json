@@ -52,19 +52,19 @@
         {
           "title": "Getting the banner rather than just the port",
           "content": "A plain port scan tells you 21 is open and nothing else, and -sV gives you nmap's guess at the product rather than what the service said. The greeting itself is what the NSE banner script prints: `--script banner`.",
-          "hint_penalty": 8,
+          "hint_penalty": 2,
           "order": 0
         },
         {
           "title": "If you would rather not use nmap for it",
           "content": "The greeting is the first thing the server sends, so anything that opens the connection will show it: `ftp 192.168.60.30` prints it before the login prompt, and so does `nc 192.168.60.30 21`.",
-          "hint_penalty": 12,
+          "hint_penalty": 2,
           "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 60,
+      "max_score": 12,
       "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [
@@ -98,19 +98,19 @@
         {
           "title": "Where in the session to look",
           "content": "It is one TCP stream, so read it as a conversation rather than as packets - Follow -> HTTP Stream. The first request is refused and the second one carries what you are after.",
-          "hint_penalty": 8,
+          "hint_penalty": 2,
           "order": 0
         },
         {
           "title": "Basic auth is not encryption",
           "content": "HTTP Basic base64-encodes `user:password` and sends it in a header. Filter on `http.authorization`; Wireshark exposes the decoded form as `http.authbasic`, or pipe the encoded blob to `base64 -d`.",
-          "hint_penalty": 12,
+          "hint_penalty": 2,
           "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 60,
+      "max_score": 12,
       "variant_answers": false,
       "reference_solution": [],
       "mitre_techniques": [
@@ -145,19 +145,19 @@
         {
           "title": "Sending the credential",
           "content": "Basic auth over the command line is `curl -u user:password <url>`. In a browser, just request the page and answer the prompt.",
-          "hint_penalty": 10,
+          "hint_penalty": 2,
           "order": 0
         },
         {
           "title": "Getting the exact account name",
           "content": "The username is in the same decoded string as the password, before the colon: `webops`.",
-          "hint_penalty": 12,
+          "hint_penalty": 2,
           "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 60,
+      "max_score": 12,
       "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [
@@ -191,19 +191,19 @@
         {
           "title": "Logging in without a credential",
           "content": "Anonymous FTP takes the literal username `anonymous` and ignores the password. If your client is fussy, `ftp -n 192.168.60.30` then `user anonymous x` at the prompt.",
-          "hint_penalty": 8,
+          "hint_penalty": 2,
           "order": 0
         },
         {
           "title": "Where the reference is",
           "content": "It is on the second line of the handover note, labelled as a change reference. Submit just the reference itself, not the label.",
-          "hint_penalty": 12,
+          "hint_penalty": 2,
           "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 60,
+      "max_score": 12,
       "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [
@@ -240,19 +240,19 @@
         {
           "title": "Building the username list",
           "content": "The usernames are already a column in staff-directory.csv - you do not have to derive them from the full names. Cut the fourth field and drop the header row.",
-          "hint_penalty": 10,
+          "hint_penalty": 2,
           "order": 0
         },
         {
           "title": "The attack itself",
           "content": "hydra takes a username list with -L and a password list with -P, and the target as a URL: `hydra -L users.txt -P wordlist.txt ssh://192.168.60.30`. Keep the thread count modest (-t 4); it finishes in seconds either way.",
-          "hint_penalty": 18,
+          "hint_penalty": 4,
           "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 80,
+      "max_score": 16,
       "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [
@@ -287,25 +287,25 @@
         {
           "title": "Where the schedule is documented",
           "content": "Two places, both readable from your foothold: the notes file in the transfer landing directory under /srv, and the vsftpd log in /var/log. Between them you get the account name and how often it logs in.",
-          "hint_penalty": 8,
+          "hint_penalty": 2,
           "order": 0
         },
         {
           "title": "Why you cannot just read the password",
           "content": "It is a system account password on both hosts, so it is stored hashed. The job script on the workstation holds the plaintext but is root-only, and you are not root there - you have no access to that host at all yet. The protocol is the weakness, not the file permissions.",
-          "hint_penalty": 12,
+          "hint_penalty": 2,
           "order": 1
         },
         {
           "title": "Getting on-path",
           "content": "This is the Module 3 technique. Enable IP forwarding first or you will black-hole the traffic you are trying to read, then poison both directions - the workstation's entry for the server and the server's entry for the workstation - and sniff TCP port 21.",
-          "hint_penalty": 14,
+          "hint_penalty": 3,
           "order": 2
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 90,
+      "max_score": 18,
       "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [
@@ -344,19 +344,19 @@
         {
           "title": "Where the credential works",
           "content": "You captured it authenticating an FTP job, but check whether it is only an FTP credential. The same password is often reused for the interactive account the job runs as - try it against SSH on the workstation the job runs from.",
-          "hint_penalty": 12,
+          "hint_penalty": 2,
           "order": 0
         },
         {
           "title": "Borrowing the workstation's position",
           "content": "You do not need to run anything on the application server. An SSH local port forward makes a port on your machine come out of the workstation: `ssh -fN -L <localport>:<target>:<targetport> user@pivot`, then talk to localhost.",
-          "hint_penalty": 18,
+          "hint_penalty": 4,
           "order": 1
         }
       ],
       "incorrect_answer_limit": 10,
       "attachments": [],
-      "max_score": 90,
+      "max_score": 18,
       "variant_answers": true,
       "reference_solution": [],
       "mitre_techniques": [

@@ -24,6 +24,21 @@
         - apt-daily.service
         - apt-daily-upgrade.service
 
+    # One wait, here, because this play spans all five hosts and Ansible
+    # runs them in parallel. Put it in each per-host play instead and the
+    # waits serialise: five hosts x 300s is 25 minutes before any real work
+    # starts, which is long enough to run the provisioning job out of time.
+    #
+    # Masking the timers above does not stop an unattended-upgrade that is
+    # already mid-run from a first boot, so the lock can genuinely be held.
+    - name: Wait for any apt/dpkg lock to release
+      ansible.builtin.shell: >
+        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
+        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
+        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
+      changed_when: false
+      failed_when: false
+
     - name: Remove unattended-upgrades
       ansible.builtin.apt:
         name: unattended-upgrades
@@ -91,14 +106,6 @@
         daemon_reload: true
 
   tasks:
-    - name: Wait for any apt/dpkg lock to release
-      ansible.builtin.shell: >
-        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
-        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
-        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
-      changed_when: false
-      failed_when: false
-
     - name: Ensure python3 is present
       ansible.builtin.apt:
         name: python3
@@ -192,14 +199,6 @@
         state: restarted
 
   tasks:
-    - name: Wait for any apt/dpkg lock to release
-      ansible.builtin.shell: >
-        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
-        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
-        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
-      changed_when: false
-      failed_when: false
-
     - name: Install file and remote-access services
       ansible.builtin.apt:
         name:
@@ -381,14 +380,6 @@
         daemon_reload: true
 
   tasks:
-    - name: Wait for any apt/dpkg lock to release
-      ansible.builtin.shell: >
-        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
-        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
-        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
-      changed_when: false
-      failed_when: false
-
     - name: Install the workstation toolset
       ansible.builtin.apt:
         name:
@@ -486,14 +477,6 @@
         daemon_reload: true
 
   tasks:
-    - name: Wait for any apt/dpkg lock to release
-      ansible.builtin.shell: >
-        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
-        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
-        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
-      changed_when: false
-      failed_when: false
-
     - name: Ensure python3 and ufw are present
       ansible.builtin.apt:
         name:
@@ -613,14 +596,6 @@
         line: "127.0.1.1 {{ ansible_hostname }}"
         state: present
 
-    - name: Wait for any apt/dpkg lock to release
-      ansible.builtin.shell: >
-        timeout 300 sh -c 'while fuser /var/lib/dpkg/lock-frontend
-        /var/lib/apt/lists/lock /var/cache/apt/archives/lock
-        /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done'
-      changed_when: false
-      failed_when: false
-
     # Preseed before installing: wireshark-common otherwise opens an
     # interactive debconf dialog and provisioning stalls. The same question is
     # what creates the "wireshark" group the next task adds the trainee to, so
@@ -642,12 +617,33 @@
           - tcpdump
           - wireshark
           - dsniff
-          - bettercap
           - netcat-openbsd
           - openssh-client
         state: present
         update_cache: true
         cache_valid_time: 3600
+
+    # Best-effort, deliberately. A build failed here with a 403 from the Kali
+    # mirror on bettercap-caplets, which is one of bettercap's dependencies -
+    # a mirror problem rather than anything wrong with the scenario, and not
+    # worth failing the whole estate over. dsniff is installed above and its
+    # arpspoof does everything level 8 needs, so the solution leads with that
+    # and offers bettercap as the alternative for trainees who met it in
+    # Module 3.
+    - name: Install bettercap if the mirror will serve it
+      ansible.builtin.apt:
+        name: bettercap
+        state: present
+      register: bettercap_install
+      failed_when: false
+
+    - name: Say so in the log when bettercap could not be installed
+      ansible.builtin.debug:
+        msg: >-
+          bettercap was not installed ({{ bettercap_install.msg | default('no
+          reason given') }}). This is not fatal: level 8 is solvable with
+          arpspoof, which is present.
+      when: bettercap_install is failed or bettercap_install.rc | default(0) != 0
 
     - name: Ensure the wireshark group exists
       ansible.builtin.group:

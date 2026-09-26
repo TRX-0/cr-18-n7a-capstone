@@ -42,8 +42,9 @@ intermediate variant of that module's technique rather than the advanced one.
 | 8 | M3 | From that foothold, find the transfer schedule; ARP-poison ws01 ↔ fs01 and read the service credential off the wire. |
 | 9 | M5 | The same credential is reused on ws01. SSH in, forward a port to app01, read the final flag. |
 
-500 points over an estimated 150 minutes, which is the bottom of the
-framework's `[150, 180]` band for N7a.
+100 points — the cap that applies to every learning node — over an
+estimated 150 minutes, the bottom of the framework's `[150, 180]` band for
+N7a. Weighted 12/12/12/12/16/18/18 across the seven graded levels.
 
 Nothing in the chain can be skipped:
 
@@ -86,10 +87,9 @@ One, `training-n7a.json`, imported separately from this repo. Ten levels: a
 briefing, the access level, seven graded steps and a closing summary.
 
 Six of the seven answers come from APG variables in `variables.yml`, so no two
-sandboxes share them. Level 4's answer is the static string
-`Or10n_Rem3d1at3d!` and has to be: the capture is a fixed artefact, so the
-password on the wire and the password the panel accepts must be the same
-literal value.
+sandboxes share them. Level 4's is static and has to be: the capture is a fixed
+artefact, so the password on the wire and the password the panel accepts must
+be the same literal value.
 
 `provisioning/files/make_capture.py` regenerates the capture. It has no
 third-party dependencies — the pcapng and every frame, including the IP and TCP
@@ -99,15 +99,28 @@ has to be updated.
 
 ## Accounts
 
-| Host | Account | Credential | Purpose |
-| ---- | ------- | ---------- | ------- |
-| vma | `user` / `Password123` | — | Trainee console. |
-| web01 | `webops` / `Or10n_Rem3d1at3d!` | Panel Basic auth | Recovered in level 4. |
-| fs01 | `j.mercer` / `sunflower` | Weak, unrotated | Recovered in level 7. |
-| fs01 | `a.hale`, `p.okonkwo`, `s.dubois`, `t.reyes` | Rotated, strong | Decoys. Denied over SSH by PAM. |
-| fs01 | `svc_sync` | APG `sync_password` | FTP only, no shell. |
-| ws01 | `svc_sync` | APG `sync_password` | Interactive. The reuse finding, and the level 9 foothold. |
-| app01 | none | — | No account exists, by design. |
+| Host | Account | Purpose |
+| ---- | ------- | ------- |
+| web01 | `webops` | Panel Basic auth. Recovered from the capture in level 4. |
+| fs01 | `j.mercer` | The support account still on the password that was never rotated. Level 7. |
+| fs01 | `a.hale`, `p.okonkwo`, `s.dubois`, `t.reyes` | Rotated, strong. Decoys that make the staff directory worth harvesting. |
+| fs01 | `svc_sync` | FTP principal, no shell. Password is the APG `sync_password`. |
+| ws01 | `svc_sync` | Interactive. Same password - the reuse finding, and the level 9 foothold. |
+| app01 | none | No account exists, by design, which is why the port forward is the only route in. |
+
+The four decoys are denied SSH through `pam_access.so`, so a guess against them
+never answers however good it is. Without that, the level 7 password attack
+would return more than the one account it is meant to.
+
+`svc_sync`'s password is an APG value, so it differs per sandbox and exists in
+readable form only on the wire. `webops`'s is static rather than APG because
+the handover capture is a fixed artefact and both ends have to agree on the
+same literal string.
+
+The working values for `webops` and `j.mercer` are in the training
+definition's `solution` fields, where they belong, and in the playbook that
+sets them. The trainee console account is `user` / `Password123`, as everywhere
+else in the course.
 
 The candidate list deployed to `vma` is a single-word list of the shape the
 handover note describes. rockyou is on the Kali image and would find the
